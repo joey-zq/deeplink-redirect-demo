@@ -1,0 +1,15 @@
+{
+  "name": "deeplink-demo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node test.mjs",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "links": "node links.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4"
+  }
+}
