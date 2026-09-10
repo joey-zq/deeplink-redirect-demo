@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict'
 import worker, {
-  decide, detectPlatform, parseDeeplink, buildIntent, links, parseWait, iosPage, indexPage,
+  decide, detectPlatform, parseDeeplink, buildIntent, links, parseWait, iosPage, indexPage, destinationLabel,
 } from './src/index.js'
 import { encode, qrSVG, _internals } from './src/qr.js'
 
@@ -180,7 +180,25 @@ check('the iOS page waits long enough to outlast the confirmation dialog', () =>
     iosBody.indexOf('visibilitychange') < iosBody.indexOf('window.location.replace(deeplink)'),
     'cancel listeners registered before the attempt',
   )
-  assert.ok(iosBody.includes('<a href="https://apps.apple.com/us/app/facebook/id284882215">Continue</a>'))
+  assert.ok(iosBody.includes('href="https://apps.apple.com/us/app/facebook/id284882215">Continue to Facebook on the App Store</a>'))
+})
+check('the page names the app, offers both destinations, and counts down', () => {
+  assert.ok(iosBody.includes('<title>Opening Facebook…</title>'))
+  assert.ok(iosBody.includes('<h1>Facebook</h1>'))
+  assert.ok(iosBody.includes('<img class="icon" src="data:image/jpeg;base64,'), 'the icon travels inline')
+  assert.ok(iosBody.includes('href="fb://profile">Open Facebook</a>'), 'the deeplink as a tappable button')
+  assert.ok(iosBody.includes('Continuing to the App Store in <b id="n">4</b>s'))
+  assert.ok(iosBody.indexOf('<h1>') < iosBody.indexOf('id="count"'), 'name above, countdown and buttons below the dialog')
+})
+check('destination labels follow the fallback URL', () => {
+  assert.equal(destinationLabel('https://apps.apple.com/us/app/x/id1'), 'the App Store')
+  assert.equal(destinationLabel('https://play.google.com/store/apps/details?id=a.b'), 'Google Play')
+  assert.equal(destinationLabel('https://www.example.com/landing'), 'example.com')
+  const p = iosPage('myapp://x', 'https://play.google.com/store/apps/details?id=a.b', 4000, { name: 'My App' })
+  assert.ok(p.includes('>Continue to My App on Google Play</a>'))
+  const q = iosPage('myapp://x', 'https://www.example.com/landing', 4000)
+  assert.ok(q.includes('<title>Opening the app…</title>') && q.includes('>Continue to example.com</a>'))
+  assert.ok(q.includes('class="icon blank"'), 'no icon known: a blank tile, never a broken image')
 })
 
 console.log('\nthe wait override')
@@ -197,7 +215,8 @@ check('wait=0 removes the automatic store redirect entirely', () => {
   const page = iosPage('fb://profile', STORE_IOS, 0)
   assert.ok(!page.includes('setTimeout'))
   assert.ok(page.includes('window.location.replace(deeplink)'), 'still attempts the app')
-  assert.ok(page.includes('<a href="' + STORE_IOS + '">Continue</a>'), 'manual route still there')
+  assert.ok(page.includes('href="' + STORE_IOS + '">Continue to the App Store</a>'), 'manual route still there')
+  assert.ok(!page.includes('id="count"'), 'nothing to count down to')
 })
 const waitRes = await get(
   new URL(all[0].href).pathname + new URL(all[0].href).search + '&wait=6000',

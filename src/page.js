@@ -4,6 +4,7 @@
  */
 import { qrSVG } from './qr.js'
 import { SHOTS } from './shots.js'
+import { ICONS } from './icons.js'
 
 export function escapeHTML(s) {
   return String(s)
@@ -35,6 +36,7 @@ export const LINKS = [
   {
     n: 1,
     app: 'Facebook',
+    icon: ICONS.facebook,
     scheme: 'fb://profile',
     urls: FACEBOOK,
     tag: 'app opens',
@@ -42,6 +44,7 @@ export const LINKS = [
   {
     n: 2,
     app: 'Wikipedia',
+    icon: ICONS.wikipedia,
     scheme: 'wikipediademo://home',
     urls: WIKIPEDIA,
     tag: 'nothing opens — on purpose',
@@ -70,6 +73,8 @@ export function params(item) {
 export function linkURL(origin, item) {
   const url = new URL('/go', origin)
   for (const [k, v] of params(item)) url.searchParams.set(k, v)
+  // demo-only: a real link takes the name (and icon) from the app record
+  url.searchParams.set('app_name', item.app)
   return url.toString()
 }
 
@@ -250,7 +255,8 @@ const FORMATS = [
       encodeURIComponent('https://apps.apple.com/us/app/google-maps/id585027354') +
       '&redirect_url_android=' +
       encodeURIComponent('https://play.google.com/store/apps/details?id=com.google.android.apps.maps') +
-      '&redirect_url_web=' + encodeURIComponent('https://www.google.com/maps'),
+      '&redirect_url_web=' + encodeURIComponent('https://www.google.com/maps') +
+      '&app_name=' + encodeURIComponent('Google Maps'),
   },
   {
     k: 'Universal Link',
@@ -482,6 +488,10 @@ export function indexPage(origin, waitMs) {
       note: 'Leave them all empty and the link falls back to the app’s own store page, which is ' +
         'what it does today.',
     }),
+    field('app_name', LINKS[0].app, 'My App', {
+      demo: true,
+      desc: 'The app name shown on the page. A real link takes it from the app record, with the icon.',
+    }),
     field('wait', String(waitMs), '4000', {
       demo: true,
       desc: 'How long iPhone waits for the app before giving up.',
@@ -502,7 +512,7 @@ export function indexPage(origin, waitMs) {
 
     '<script>(function(){',
     "var names=['deeplink_url_ios','deeplink_url_android','redirect_url_ios',",
-    "'redirect_url_android','redirect_url_web','redirect_url','wait'];",
+    "'redirect_url_android','redirect_url_web','redirect_url','app_name','wait'];",
     "var out=document.getElementById('gen'),qr=document.getElementById('genqr');",
     'function build(){',
     "var u=new URL('/go',location.origin);u.searchParams.set('force_deeplink','1');",

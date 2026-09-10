@@ -25,6 +25,8 @@
  *   redirect_url          the destination for any platform not named above
  *   wait                  demo-only: ms the page waits before giving up.
  *                         0 disables the automatic fallback entirely.
+ *   app_name              demo-only: the app name shown on the page. A real
+ *                         link takes name and icon from the app record.
  *   android               demo-only: forces `page` or `intent` on Android
  *                         instead of letting the browser check decide.
  *
@@ -234,27 +236,107 @@ export function decide({
  *    app won. Nothing distinguishes "the user declined" from "no app" — both
  *    leave the page visible — so a declined prompt still ends at the store.
  */
-export function iosPage(deeplink, storeURL, waitMs) {
+export function destinationLabel(url) {
+  let host = ''
+  try {
+    host = new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return 'the website'
+  }
+  if (host === 'apps.apple.com' || host === 'itunes.apple.com') return 'the App Store'
+  if (host === 'play.google.com') return 'Google Play'
+  return host
+}
+
+/**
+ * The interstitial. Two states on one page:
+ *
+ *   Opening  — the first `waitMs` after load. Icon, app name, "Opening <App>…",
+ *              a countdown to the fallback, and both destinations as buttons.
+ *              If the page is still visible when the wait ends, it goes to
+ *              the fallback by itself.
+ *   Waiting  — the wait was cancelled (the page was hidden: the app opened, or
+ *              the user switched away) and the page is visible again, or the
+ *              user tapped a button, or `waitMs` is 0. No automatic redirect:
+ *              a user who comes back may have the app open already, so the
+ *              two buttons are the way forward.
+ *
+ * Self-contained: the only asset is the icon, inlined. Both buttons are plain
+ * links, so the page works with JavaScript off. The cancel listeners are
+ * registered before the deeplink attempt on purpose: the hand-off to the OS
+ * can happen at once, and a listener registered after it may never run.
+ */
+export function iosPage(deeplink, storeURL, waitMs, app = {}) {
+  const name = (app && app.name) || ''
+  const icon = (app && app.icon) || ''
+  const where = destinationLabel(storeURL)
+  const title = name ? 'Opening ' + name : 'Opening the app'
+  const openLabel = name ? 'Open ' + name : 'Open the app'
+  const storeLabel = name ? 'Continue to ' + name + ' on ' + where : 'Continue to ' + where
+  const seconds = Math.ceil(waitMs / 1000)
+  const style = [
+    ':root{color-scheme:light dark;--fg:#1c1c1e;--muted:rgba(60,60,67,.6);--line:rgba(60,60,67,.29);--tint:#0a84ff;--bg:#fff}',
+    '@media (prefers-color-scheme:dark){:root{--fg:#f2f2f7;--muted:rgba(235,235,245,.6);--line:rgba(84,84,88,.65);--bg:#000}}',
+    'html,body{height:100%}',
+    'body{margin:0;background:var(--bg);color:var(--fg);',
+    'font:16px/1.45 -apple-system,BlinkMacSystemFont,system-ui,Segoe UI,Roboto,sans-serif;-webkit-text-size-adjust:100%}',
+    'main{min-height:100%;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;',
+    'justify-content:space-between;padding:max(12vh,3rem) 1.5rem max(env(safe-area-inset-bottom),1.25rem)}',
+    '.top,.bottom{width:100%;max-width:22rem;text-align:center}',
+    '.icon{width:72px;height:72px;border-radius:16px;display:block;margin:0 auto 1rem;',
+    'box-shadow:0 1px 3px rgba(0,0,0,.15)}',
+    '.icon.blank{background:var(--line)}',
+    'h1{font-size:1.35rem;font-weight:600;margin:0 0 .25rem;letter-spacing:-.01em}',
+    '.status{margin:0;color:var(--muted);font-size:.95rem}',
+    '.count{margin:0 0 .75rem;color:var(--muted);font-size:.85rem}',
+    '.btn{display:block;box-sizing:border-box;width:100%;padding:.85rem 1rem;margin:0 0 .6rem;',
+    'border-radius:12px;text-align:center;text-decoration:none;font-weight:600;font-size:1rem;',
+    'border:1px solid var(--tint);color:var(--tint);background:transparent}',
+    '.btn.primary{background:var(--tint);color:#fff}',
+    '[hidden]{display:none!important}',
+    '.dots::after{content:"…";display:inline-block;width:1.2em;text-align:left;animation:d 1.5s steps(4,end) infinite}',
+    '@keyframes d{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"…"}}',
+  ].join('')
   return [
     '<!doctype html>',
     '<html lang="en"><head>',
     '<meta charset="utf-8">',
-    '<meta name="viewport" content="width=device-width,initial-scale=1">',
-    '<title>Opening…</title>',
-    '</head><body style="margin:0;padding:3rem 1.5rem;text-align:center;',
-    'font:16px/1.6 -apple-system,BlinkMacSystemFont,system-ui,sans-serif">',
-    '<p>Opening…</p>',
-    '<p><a href="' + escapeHTML(storeURL) + '">Continue</a></p>',
+    '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">',
+    '<title>' + escapeHTML(title) + '…</title>',
+    '<style>' + style + '</style>',
+    '</head><body><main>',
+    '<div class="top">',
+    icon
+      ? '<img class="icon" src="' + escapeHTML(icon) + '" alt="">'
+      : '<div class="icon blank"></div>',
+    '<h1>' + escapeHTML(name || 'Your app') + '</h1>',
+    '<p id="status" class="status"><span class="dots">' + escapeHTML(title) + '</span></p>',
+    '</div>',
+    '<div class="bottom">',
+    waitMs > 0
+      ? '<p id="count" class="count">Continuing to ' + escapeHTML(where) + ' in <b id="n">' + seconds + '</b>s</p>'
+      : '',
+    '<a id="open" class="btn primary" href="' + escapeHTML(deeplink) + '">' + escapeHTML(openLabel) + '</a>',
+    '<a id="store" class="btn" href="' + escapeHTML(storeURL) + '">' + escapeHTML(storeLabel) + '</a>',
+    '</div>',
+    '</main>',
     '<script>(function(){',
     'var store=' + JSON.stringify(storeURL) + ';',
     'var deeplink=' + JSON.stringify(deeplink) + ';',
+    'var wait=' + waitMs + ';',
     'var done=false;',
-    'function stop(){done=true;}',
-    "document.addEventListener('visibilitychange',function(){if(document.hidden)stop();});",
+    "var count=document.getElementById('count'),n=document.getElementById('n'),status=document.getElementById('status');",
+    'var deadline=Date.now()+wait,tick=null;',
+    // Waiting state: no countdown, no status line, just the two buttons.
+    'function rest(){if(count)count.hidden=true;if(status)status.hidden=true;if(tick){clearInterval(tick);tick=null;}}',
+    'function stop(){if(done)return;done=true;if(tick){clearInterval(tick);tick=null;}}',
+    "document.addEventListener('visibilitychange',function(){if(document.hidden){stop();}else if(done){rest();}});",
     "window.addEventListener('pagehide',stop);",
+    "document.getElementById('open').addEventListener('click',function(){stop();rest();});",
     waitMs > 0
-      ? 'setTimeout(function(){if(!done&&!document.hidden){window.location.replace(store);}},' + waitMs + ');'
-      : '',
+      ? 'tick=setInterval(function(){if(n)n.textContent=Math.max(0,Math.ceil((deadline-Date.now())/1000));},250);' +
+        'setTimeout(function(){if(!done&&!document.hidden){window.location.replace(store);}},' + waitMs + ');'
+      : 'rest();',
     'window.location.replace(deeplink);',
     '})();</script>',
     '</body></html>',
@@ -396,7 +478,12 @@ export default {
     }
 
     if (result.action === 'html') {
-      return html(iosPage(result.deeplink, result.location, parseWait(waitParam)))
+      // A real link takes name and icon from the app record. The demo links
+      // carry them; /go accepts a demo-only `app_name`.
+      const appName = (url.searchParams.get('app_name') || '').slice(0, 60)
+      const known = numbered || LINKS.find((item) => item.app === appName)
+      const app = known ? { name: known.app, icon: known.icon } : { name: appName }
+      return html(iosPage(result.deeplink, result.location, parseWait(waitParam), app))
     }
     return redirect(result.location)
   },
