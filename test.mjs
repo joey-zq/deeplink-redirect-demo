@@ -510,7 +510,7 @@ check('demo-only fields are marked, and the reason is stated once', () => {
   assert.ok(page.includes('<em>demo only</em>'))
   assert.ok(page.includes('it already knows its app and its platform'))
   const labelled = (page.match(/<em>demo only<\/em>/g) || []).length
-  assert.equal(labelled, 5, 'both deeplinks, both stores, and wait')
+  assert.equal(labelled, 6, 'both deeplinks, both stores, app name, and wait')
 })
 check('a label and a caveat are told apart visually', () => {
   assert.ok(page.includes('class="lab"'), 'parameter name')
