@@ -236,32 +236,60 @@ export function decide({
  *    app won. Nothing distinguishes "the user declined" from "no app" — both
  *    leave the page visible — so a declined prompt still ends at the store.
  */
-export function destinationLabel(url) {
+/**
+ * What the fallback is, from its URL: a store (with its glyph and the
+ * store's own wording) or a web page. Drives the copy on the page.
+ */
+export function destinationInfo(url) {
   let host = ''
   try {
     host = new URL(url).hostname.replace(/^www\./, '')
   } catch {
-    return 'the website'
+    host = ''
   }
-  if (host === 'apps.apple.com' || host === 'itunes.apple.com') return 'the App Store'
-  if (host === 'play.google.com') return 'Google Play'
-  return host
+  if (host === 'apps.apple.com' || host === 'itunes.apple.com') {
+    return { kind: 'store', label: 'the App Store', cta: 'Download on the App Store', glyph: 'apple' }
+  }
+  if (host === 'play.google.com') {
+    return { kind: 'store', label: 'Google Play', cta: 'Get it on Google Play', glyph: 'play' }
+  }
+  return { kind: 'web', label: host || 'the website', cta: 'Continue to ' + (host || 'the website'), glyph: 'globe' }
+}
+
+export function destinationLabel(url) {
+  return destinationInfo(url).label
+}
+
+// Inline glyphs, 24×24, drawn in currentColor. No external assets on this page.
+const GLYPH = {
+  apple:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.365 1.43c0 1.14-.493 2.27-1.177 3.08-.744.9-1.99 1.57-2.987 1.57-.12 0-.23-.02-.3-.03-.01-.06-.04-.22-.04-.39 0-1.15.572-2.27 1.206-2.98.804-.94 2.142-1.64 3.248-1.68.03.13.05.28.05.43zm4.565 15.71c-.03.07-.463 1.58-1.518 3.12-.945 1.34-1.94 2.71-3.43 2.71-1.517 0-1.9-.88-3.63-.88-1.698 0-2.302.91-3.67.91-1.377 0-2.332-1.26-3.428-2.8-1.287-1.82-2.323-4.63-2.323-7.28 0-4.28 2.797-6.55 5.552-6.55 1.448 0 2.675.95 3.6.95.865 0 2.222-1.01 3.902-1.01.613 0 2.886.06 4.374 2.19-.13.09-2.383 1.37-2.383 4.19 0 3.26 2.854 4.42 2.955 4.45z"/></svg>',
+  play:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M4 3.5v17a1 1 0 0 0 1.5.87l14-8.5a1 1 0 0 0 0-1.74l-14-8.5A1 1 0 0 0 4 3.5z"/></svg>',
+  globe:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" d="M12 2.5a9.5 9.5 0 1 0 0 19 9.5 9.5 0 0 0 0-19zm0 0c-2.8 2.6-2.8 16.4 0 19m0-19c2.8 2.6 2.8 16.4 0 19M2.5 12h19M4 7.5h16M4 16.5h16"/></svg>',
+  open:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M7 17 17 7M8.5 7H17v8.5"/></svg>',
 }
 
 /**
- * The interstitial. Two states on one page:
+ * The interstitial. Two zones, two states.
  *
- *   Opening  — the first `waitMs` after load. Icon, app name, "Opening <App>…",
- *              a countdown to the fallback, and both destinations as buttons.
- *              If the page is still visible when the wait ends, it goes to
- *              the fallback by itself.
- *   Waiting  — the wait was cancelled (the page was hidden: the app opened, or
- *              the user switched away) and the page is visible again, or the
- *              user tapped a button, or `waitMs` is 0. No automatic redirect:
- *              a user who comes back may have the app open already, so the
- *              two buttons are the way forward.
+ * Top zone = the deeplink: icon, app name, "Opening <App>…", and a manual
+ * "Not opening? Open <App>" link for when the automatic attempt did nothing
+ * (in-app browsers), which as a tap is a real user gesture.
+ * Bottom zone = the fallback: "Don't have <App>?", the store button with the
+ * store's glyph, and the countdown to it.
  *
- * Self-contained: the only asset is the icon, inlined. Both buttons are plain
+ *   Opening  — the first `waitMs` after load. If the page is still visible
+ *              when the wait ends, it goes to the fallback by itself.
+ *   Waiting  — the wait was cancelled (the page was hidden: the app opened,
+ *              or the user switched away) and the page is visible again, or
+ *              the user tapped, or `waitMs` is 0. No automatic redirect: a
+ *              user who comes back may have the app open already. The status
+ *              line and the countdown go away; the two actions stay.
+ *
+ * Self-contained: the only asset is the icon, inlined. Both actions are plain
  * links, so the page works with JavaScript off. The cancel listeners are
  * registered before the deeplink attempt on purpose: the hand-off to the OS
  * can happen at once, and a listener registered after it may never run.
@@ -269,10 +297,10 @@ export function destinationLabel(url) {
 export function iosPage(deeplink, storeURL, waitMs, app = {}) {
   const name = (app && app.name) || ''
   const icon = (app && app.icon) || ''
-  const where = destinationLabel(storeURL)
+  const dest = destinationInfo(storeURL)
   const title = name ? 'Opening ' + name : 'Opening the app'
   const openLabel = name ? 'Open ' + name : 'Open the app'
-  const storeLabel = name ? 'Continue to ' + name + ' on ' + where : 'Continue to ' + where
+  const askLabel = dest.kind === 'store' ? (name ? "Don't have " + name + '?' : "Don't have the app?") : 'Or continue on the web'
   const seconds = Math.ceil(waitMs / 1000)
   const style = [
     ':root{color-scheme:light dark;--fg:#1c1c1e;--muted:rgba(60,60,67,.6);--line:rgba(60,60,67,.29);--tint:#0a84ff;--bg:#fff}',
@@ -281,18 +309,21 @@ export function iosPage(deeplink, storeURL, waitMs, app = {}) {
     'body{margin:0;background:var(--bg);color:var(--fg);',
     'font:16px/1.45 -apple-system,BlinkMacSystemFont,system-ui,Segoe UI,Roboto,sans-serif;-webkit-text-size-adjust:100%}',
     'main{min-height:100%;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;',
-    'justify-content:space-between;padding:max(12vh,3rem) 1.5rem max(env(safe-area-inset-bottom),1.25rem)}',
+    'justify-content:space-between;padding:max(12vh,3rem) 1.5rem max(env(safe-area-inset-bottom),1.5rem)}',
     '.top,.bottom{width:100%;max-width:22rem;text-align:center}',
     '.icon{width:72px;height:72px;border-radius:16px;display:block;margin:0 auto 1rem;',
     'box-shadow:0 1px 3px rgba(0,0,0,.15)}',
     '.icon.blank{background:var(--line)}',
     'h1{font-size:1.35rem;font-weight:600;margin:0 0 .25rem;letter-spacing:-.01em}',
-    '.status{margin:0;color:var(--muted);font-size:.95rem}',
-    '.count{margin:0 0 .75rem;color:var(--muted);font-size:.85rem}',
-    '.btn{display:block;box-sizing:border-box;width:100%;padding:.85rem 1rem;margin:0 0 .6rem;',
-    'border-radius:12px;text-align:center;text-decoration:none;font-weight:600;font-size:1rem;',
+    '.status{margin:0 0 1rem;color:var(--muted);font-size:.95rem}',
+    '.link{display:inline-flex;align-items:center;gap:.3rem;color:var(--tint);text-decoration:none;font-weight:500;font-size:.95rem}',
+    '.link svg{width:1.05em;height:1.05em}',
+    '.ask{margin:0 0 .6rem;color:var(--muted);font-size:.85rem}',
+    '.btn{display:flex;align-items:center;justify-content:center;gap:.6rem;box-sizing:border-box;width:100%;',
+    'padding:.85rem 1rem;margin:0 0 .6rem;border-radius:12px;text-decoration:none;font-weight:600;font-size:1rem;',
     'border:1px solid var(--tint);color:var(--tint);background:transparent}',
-    '.btn.primary{background:var(--tint);color:#fff}',
+    '.btn svg{width:1.3em;height:1.3em;flex:0 0 auto}',
+    '.count{margin:0;color:var(--muted);font-size:.85rem}',
     '[hidden]{display:none!important}',
     '.dots::after{content:"…";display:inline-block;width:1.2em;text-align:left;animation:d 1.5s steps(4,end) infinite}',
     '@keyframes d{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"…"}}',
@@ -305,19 +336,23 @@ export function iosPage(deeplink, storeURL, waitMs, app = {}) {
     '<title>' + escapeHTML(title) + '…</title>',
     '<style>' + style + '</style>',
     '</head><body><main>',
+    // top zone: the deeplink
     '<div class="top">',
     icon
       ? '<img class="icon" src="' + escapeHTML(icon) + '" alt="">'
       : '<div class="icon blank"></div>',
     '<h1>' + escapeHTML(name || 'Your app') + '</h1>',
     '<p id="status" class="status"><span class="dots">' + escapeHTML(title) + '</span></p>',
+    '<a id="open" class="link" href="' + escapeHTML(deeplink) + '">' +
+      '<span id="opentext">Not opening? ' + escapeHTML(openLabel) + '</span>' + GLYPH.open + '</a>',
     '</div>',
+    // bottom zone: the fallback
     '<div class="bottom">',
+    '<p class="ask">' + escapeHTML(askLabel) + '</p>',
+    '<a id="store" class="btn" href="' + escapeHTML(storeURL) + '">' + GLYPH[dest.glyph] + '<span>' + escapeHTML(dest.cta) + '</span></a>',
     waitMs > 0
-      ? '<p id="count" class="count">Continuing to ' + escapeHTML(where) + ' in <b id="n">' + seconds + '</b>s</p>'
+      ? '<p id="count" class="count">Continuing to ' + escapeHTML(dest.label) + ' in <b id="n">' + seconds + '</b>s</p>'
       : '',
-    '<a id="open" class="btn primary" href="' + escapeHTML(deeplink) + '">' + escapeHTML(openLabel) + '</a>',
-    '<a id="store" class="btn" href="' + escapeHTML(storeURL) + '">' + escapeHTML(storeLabel) + '</a>',
     '</div>',
     '</main>',
     '<script>(function(){',
@@ -325,10 +360,10 @@ export function iosPage(deeplink, storeURL, waitMs, app = {}) {
     'var deeplink=' + JSON.stringify(deeplink) + ';',
     'var wait=' + waitMs + ';',
     'var done=false;',
-    "var count=document.getElementById('count'),n=document.getElementById('n'),status=document.getElementById('status');",
+    "var count=document.getElementById('count'),n=document.getElementById('n'),status=document.getElementById('status'),opentext=document.getElementById('opentext');",
     'var deadline=Date.now()+wait,tick=null;',
-    // Waiting state: no countdown, no status line, just the two buttons.
-    'function rest(){if(count)count.hidden=true;if(status)status.hidden=true;if(tick){clearInterval(tick);tick=null;}}',
+    // Waiting state: no countdown, no status line, the manual link reads as the action itself.
+    "function rest(){if(count)count.hidden=true;if(status)status.hidden=true;if(opentext)opentext.textContent=" + JSON.stringify(openLabel) + ";if(tick){clearInterval(tick);tick=null;}}",
     'function stop(){if(done)return;done=true;if(tick){clearInterval(tick);tick=null;}}',
     "document.addEventListener('visibilitychange',function(){if(document.hidden){stop();}else if(done){rest();}});",
     "window.addEventListener('pagehide',stop);",
